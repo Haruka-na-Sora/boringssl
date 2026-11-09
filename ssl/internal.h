@@ -3546,6 +3546,9 @@ struct SSL_CONFIG {
   // ClientHello.
   bool ech_grease_enabled : 1;
 
+  // Zero selects the native hardware-dependent ECH GREASE AEAD.
+  uint16_t ech_grease_aead_id = 0;
+
   // reject_unusable_ech_config controls whether the client will fail the
   // handshake if ECH cannot be offered.
   bool reject_unusable_ech_config : 1;

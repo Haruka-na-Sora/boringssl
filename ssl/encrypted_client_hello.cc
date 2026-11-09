@@ -744,6 +744,11 @@ static bool setup_ech_grease(SSL_HANDSHAKE *hs) {
   const EVP_HPKE_AEAD *aead = EVP_has_aes_hardware()
                                   ? EVP_hpke_aes_128_gcm()
                                   : EVP_hpke_chacha20_poly1305();
+  switch (hs->config->ech_grease_aead_id) {
+    case EVP_HPKE_AES_128_GCM: aead = EVP_hpke_aes_128_gcm(); break;
+    case EVP_HPKE_AES_256_GCM: aead = EVP_hpke_aes_256_gcm(); break;
+    case EVP_HPKE_CHACHA20_POLY1305: aead = EVP_hpke_chacha20_poly1305(); break;
+  }
   static_assert(ssl_grease_ech_config_id < sizeof(hs->grease_seed),
                 "hs->grease_seed is too small");
   uint8_t config_id = hs->grease_seed[ssl_grease_ech_config_id];
@@ -895,6 +900,18 @@ bool ssl_encrypt_client_hello(SSL_HANDSHAKE *hs, Span<const uint8_t> enc) {
 BSSL_NAMESPACE_END
 
 using namespace bssl;
+
+int SSL_set_ech_grease_aead_id(SSL *ssl, uint16_t aead_id) {
+  auto *ssl_impl = FromOpaque(ssl);
+  if (!ssl_impl->config ||
+      (aead_id != 0 && aead_id != EVP_HPKE_AES_128_GCM &&
+       aead_id != EVP_HPKE_AES_256_GCM &&
+       aead_id != EVP_HPKE_CHACHA20_POLY1305)) {
+    return 0;
+  }
+  ssl_impl->config->ech_grease_aead_id = aead_id;
+  return 1;
+}
 
 void SSL_set_enable_ech_grease(SSL *ssl, int enable) {
   auto *ssl_impl = FromOpaque(ssl);

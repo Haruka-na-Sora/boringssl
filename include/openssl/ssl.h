@@ -4742,6 +4742,12 @@ OPENSSL_EXPORT void SSL_set_enable_ech_grease(SSL *ssl, int enable);
 // ECH.
 OPENSSL_EXPORT void SSL_set_reject_unusable_ech_config(SSL *ssl, int enable);
 
+// SSL_set_ech_grease_aead_id sets the AEAD identifier advertised in ECH
+// GREASE. Zero restores hardware-dependent defaults; 1, 2 and 3 select
+// AES-128-GCM, AES-256-GCM and ChaCha20-Poly1305 respectively. This does not
+// change real ECH cipher selection. Returns zero for an unsupported ID.
+OPENSSL_EXPORT int SSL_set_ech_grease_aead_id(SSL *ssl, uint16_t aead_id);
+
 // SSL_set1_ech_config_list configures `ssl` to, as a client, offer ECH with the
 // specified configuration. `ech_config_list` should contain a serialized
 // ECHConfigList structure. It returns one on success and zero on error.
