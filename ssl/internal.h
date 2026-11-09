@@ -3405,6 +3405,11 @@ struct SSL_CONFIG {
   // ssl is a non-owning pointer to the parent `SSL` object.
   SSLImpl *const ssl = nullptr;
 
+  int (*reality_callback)(SSL *, uint8_t[32], const uint8_t *, size_t,
+                           const uint8_t[32], void *) = nullptr;
+  uint8_t reality_public_key[32] = {0};
+  void *reality_arg = nullptr;
+
   // conf_max_version is the maximum acceptable version configured by
   // `SSL_set_max_proto_version`. Note this version is not normalized in DTLS
   // and is further constrained by `SSL_OP_NO_*`.

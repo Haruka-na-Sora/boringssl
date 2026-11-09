@@ -2174,6 +2174,21 @@ int SSL_get_negotiated_group(const SSL *ssl) {
   return ssl_group_id_to_nid(group_id);
 }
 
+int SSL_set_reality_client_hello_callback(
+    SSL *ssl, const uint8_t public_key[32],
+    int (*callback)(SSL *, uint8_t[32], const uint8_t *, size_t,
+                    const uint8_t[32], void *), void *arg) {
+  auto *impl = FromOpaque(ssl);
+  if (!impl->config || !callback || !public_key || impl->server ||
+      SSL_in_init(ssl) == 0) {
+    return 0;
+  }
+  OPENSSL_memcpy(impl->config->reality_public_key, public_key, 32);
+  impl->config->reality_callback = callback;
+  impl->config->reality_arg = arg;
+  return 1;
+}
+
 int SSL_set1_client_key_shares(SSL *ssl, const uint16_t *group_ids,
                                size_t num_group_ids) {
   auto *ssl_impl = FromOpaque(ssl);

@@ -2855,6 +2855,22 @@ OPENSSL_EXPORT int SSL_get_negotiated_group(const SSL *ssl);
 // outputs key shares for up to two supported groups, at most one of which is
 // post-quantum.
 
+// SSL_set_reality_client_hello_callback enables classic X25519 REALITY client
+// authentication. The client must use TLS 1.3, an X25519 key share, and no
+// ECH or resumption. HelloRetryRequest is not supported in this mode.
+//
+// The callback receives the serialized handshake message with its 32-byte
+// session ID zeroed and the X25519 secret shared with `public_key`. It must
+// write the authenticated session ID to `out_session_id` and return one, or
+// return zero to abort. Neither input may be retained. `arg` must outlive the
+// handshake. The caller must separately authenticate the REALITY certificate.
+// This hook does not emulate a browser ClientHello.
+OPENSSL_EXPORT int SSL_set_reality_client_hello_callback(
+    SSL *ssl, const uint8_t public_key[32],
+    int (*callback)(SSL *ssl, uint8_t out_session_id[32],
+                     const uint8_t *client_hello, size_t client_hello_len,
+                     const uint8_t shared_secret[32], void *arg), void *arg);
+
 // SSL_set1_client_key_shares, when called by a client before the handshake,
 // configures `ssl` to send a key_share extension in the initial ClientHello
 // containing exactly the groups given by `group_ids`, in the order given. Each

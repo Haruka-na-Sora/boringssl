@@ -197,6 +197,39 @@ bool ssl_add_client_hello(SSL_HANDSHAKE *hs) {
     return false;
   }
 
+  if (hs->config->reality_callback != nullptr) {
+    if (SSL_is_dtls(ssl) || SSL_is_quic(ssl) || hs->selected_ech_config ||
+        ssl->s3->used_hello_retry_request || hs->min_version != TLS1_3_VERSION ||
+        hs->session_id.size() != 32 || msg.size() < 71 || msg[38] != 32 ||
+        ssl->session) {
+      OPENSSL_PUT_ERROR(SSL, ERR_R_INTERNAL_ERROR);
+      return false;
+    }
+    SSLKeyShare *authentication_share = nullptr;
+    for (const auto &share : hs->key_shares) {
+      if (share->GroupID() == SSL_GROUP_X25519) {
+        authentication_share = share.get();
+      }
+    }
+    Array<uint8_t> secret;
+    uint8_t alert;
+    if (!authentication_share || !authentication_share->Decap(
+                                     &secret, &alert,
+                                     hs->config->reality_public_key)) {
+      return false;
+    }
+    OPENSSL_memset(msg.data() + 39, 0, 32);
+    const bool ok = hs->config->reality_callback(
+        ssl, hs->session_id.data(), msg.data(), msg.size(),
+        secret.data(), hs->config->reality_arg);
+    OPENSSL_cleanse(secret.data(), secret.size());
+    if (!ok) {
+      OPENSSL_PUT_ERROR(SSL, ERR_R_INTERNAL_ERROR);
+      return false;
+    }
+    OPENSSL_memcpy(msg.data() + 39, hs->session_id.data(), 32);
+  }
+
   return ssl->method->add_message(ssl, std::move(msg));
 }
 
