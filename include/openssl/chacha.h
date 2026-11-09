@@ -40,6 +40,21 @@ OPENSSL_EXPORT void CRYPTO_chacha_20(uint8_t *out, const uint8_t *in,
                                      const uint8_t nonce[12], uint32_t counter);
 
 
+// CRYPTO_chacha_20_64 implements the original ChaCha20 stream cipher with an
+// eight-byte nonce and a 64-bit block counter. As with CRYPTO_chacha_20, input
+// and output may be equal but must not otherwise overlap. The counter wraps
+// on overflow; callers must not reuse a key, nonce, and counter combination.
+OPENSSL_EXPORT void CRYPTO_chacha_20_64(uint8_t *out, const uint8_t *in,
+                                      size_t in_len, const uint8_t key[32],
+                                      const uint8_t nonce[8], uint64_t counter);
+
+// CRYPTO_xchacha_20 implements XChaCha20 with a 24-byte nonce and a 64-bit
+// block counter. Buffer aliasing and counter limits match CRYPTO_chacha_20_64.
+OPENSSL_EXPORT void CRYPTO_xchacha_20(uint8_t *out, const uint8_t *in,
+                                    size_t in_len, const uint8_t key[32],
+                                    const uint8_t nonce[24], uint64_t counter);
+
+
 #if defined(__cplusplus)
 }  // extern C
 #endif

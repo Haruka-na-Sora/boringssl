@@ -15,6 +15,7 @@
 // Adapted from the public domain, estream code by D. Bernstein.
 
 #include <openssl/chacha.h>
+#include <openssl/mem.h>
 
 #include <assert.h>
 #include <string.h>
@@ -224,3 +225,33 @@ void CRYPTO_chacha_20(uint8_t *out, const uint8_t *in, size_t in_len,
 }
 
 #endif
+
+// The original layout uses state words 12 and 13 as a 64-bit counter. Map
+// word 13 to the first IETF nonce word, splitting before word 12 wraps so the
+// existing 32-bit implementation (including its assembly) never loses carry.
+void CRYPTO_chacha_20_64(uint8_t *out, const uint8_t *in, size_t in_len,
+                         const uint8_t key[32], const uint8_t nonce[8],
+                         uint64_t counter) {
+  uint8_t nonce12[12];
+  OPENSSL_memcpy(nonce12 + 4, nonce, 8);
+  while (in_len > 0) {
+    const uint32_t low = static_cast<uint32_t>(counter);
+    CRYPTO_store_u32_le(nonce12, static_cast<uint32_t>(counter >> 32));
+    const uint64_t limit = 64 * ((UINT64_C(1) << 32) - low);
+    const size_t todo = limit < in_len ? static_cast<size_t>(limit) : in_len;
+    CRYPTO_chacha_20(out, in, todo, key, nonce12, low);
+    out += todo;
+    in += todo;
+    in_len -= todo;
+    counter += todo / 64;
+  }
+}
+
+void CRYPTO_xchacha_20(uint8_t *out, const uint8_t *in, size_t in_len,
+                       const uint8_t key[32], const uint8_t nonce[24],
+                       uint64_t counter) {
+  uint8_t subkey[32];
+  CRYPTO_hchacha20(subkey, key, nonce);
+  CRYPTO_chacha_20_64(out, in, in_len, subkey, nonce + 16, counter);
+  OPENSSL_cleanse(subkey, sizeof(subkey));
+}
