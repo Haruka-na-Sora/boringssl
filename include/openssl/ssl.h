@@ -2856,8 +2856,9 @@ OPENSSL_EXPORT int SSL_get_negotiated_group(const SSL *ssl);
 // post-quantum.
 
 // SSL_set_reality_client_hello_callback enables classic X25519 REALITY client
-// authentication. The client must use TLS 1.3, an X25519 key share, and no
+// authentication. The client must offer TLS 1.3, an X25519 key share, and no
 // ECH or resumption. HelloRetryRequest is not supported in this mode.
+// The caller must require TLS 1.3 before sending application data.
 //
 // The callback receives the serialized handshake message with its 32-byte
 // session ID zeroed and the X25519 secret shared with `public_key`. It must
@@ -5693,6 +5694,12 @@ OPENSSL_EXPORT void SSL_CTX_set_retain_only_sha256_of_client_certs(SSL_CTX *ctx,
 // TODO(crbug.com/529360100): signature_algorithms extensions in
 // CertificateRequest messages should also be GREASE'd.
 OPENSSL_EXPORT void SSL_CTX_set_grease_enabled(SSL_CTX *ctx, int enabled);
+
+// SSL_CTX_set_grease_signature_algorithms_enabled controls GREASE in the
+// ClientHello signature_algorithms list, when GREASE is enabled. The default
+// is enabled. Disable it to reproduce profiles predating this GREASE field.
+OPENSSL_EXPORT void SSL_CTX_set_grease_signature_algorithms_enabled(
+    SSL_CTX *ctx, int enabled);
 
 // SSL_CTX_set_permute_extensions configures whether sockets on `ctx` should
 // permute extensions. For now, this is only implemented for the ClientHello.

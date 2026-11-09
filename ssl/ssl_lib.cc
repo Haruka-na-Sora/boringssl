@@ -369,6 +369,7 @@ bssl::SSLContext::SSLContext(const SSL_METHOD *ssl_method)
       signed_cert_timestamps_enabled(false),
       channel_id_enabled(false),
       grease_enabled(false),
+      grease_signature_algorithms_enabled(true),
       permute_extensions(false),
       allow_unknown_alpn_protos(false),
       false_start_allowed_without_alpn(false),
@@ -3322,6 +3323,10 @@ void SSL_CTX_set_retain_only_sha256_of_client_certs(SSL_CTX *ctx, int enabled) {
 
 void SSL_CTX_set_grease_enabled(SSL_CTX *ctx, int enabled) {
   FromOpaque(ctx)->grease_enabled = !!enabled;
+}
+
+void SSL_CTX_set_grease_signature_algorithms_enabled(SSL_CTX *ctx, int enabled) {
+  FromOpaque(ctx)->grease_signature_algorithms_enabled = !!enabled;
 }
 
 void SSL_CTX_set_permute_extensions(SSL_CTX *ctx, int enabled) {

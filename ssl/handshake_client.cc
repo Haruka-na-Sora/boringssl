@@ -199,7 +199,7 @@ bool ssl_add_client_hello(SSL_HANDSHAKE *hs) {
 
   if (hs->config->reality_callback != nullptr) {
     if (SSL_is_dtls(ssl) || SSL_is_quic(ssl) || hs->selected_ech_config ||
-        ssl->s3->used_hello_retry_request || hs->min_version != TLS1_3_VERSION ||
+        ssl->s3->used_hello_retry_request || hs->max_version != TLS1_3_VERSION ||
         hs->session_id.size() != 32 || msg.size() < 71 || msg[38] != 32 ||
         ssl->session) {
       OPENSSL_PUT_ERROR(SSL, ERR_R_INTERNAL_ERROR);

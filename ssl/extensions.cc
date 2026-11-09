@@ -1032,6 +1032,7 @@ static bool ext_sigalgs_add_clienthello(const SSL_HANDSHAKE *hs, CBB *out,
   }
   // Add a fake signature algorithm. See RFC 8701.
   if (hs->ssl->ctx->grease_enabled &&
+      hs->ssl->ctx->grease_signature_algorithms_enabled &&
       !CBB_add_u16(&sigalgs_cbb,
                    ssl_get_grease_value(hs, ssl_grease_signature_algorithm))) {
     return false;

@@ -4194,6 +4194,9 @@ class SSLContext : public ssl_ctx_st, public RefCounted<SSLContext> {
   // grease_enabled is whether GREASE (RFC 8701) is enabled.
   bool grease_enabled : 1;
 
+  // Independently control newer signature-algorithm GREASE for older profiles.
+  bool grease_signature_algorithms_enabled : 1;
+
   // permute_extensions is whether to permute extensions when sending messages.
   bool permute_extensions : 1;
 
