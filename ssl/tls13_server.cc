@@ -402,6 +402,17 @@ static enum ssl_hs_wait_t do_select_parameters(SSL_HANDSHAKE *hs) {
   hs->new_cipher = ssl->config->tls13_cipher_list.ChooseCipher(
       &client_cipher_list, /*prioritize_client_pref=*/false,
       ssl_protocol_version(ssl), SSL_kGENERIC, SSL_aGENERIC);
+  if (hs->config->reality_server) {
+    bool offered = false;
+    uint16_t cipher;
+    CBS_init(&client_cipher_list, client_hello.cipher_suites,
+             client_hello.cipher_suites_len);
+    while (CBS_get_u16(&client_cipher_list, &cipher)) {
+      offered |= cipher == hs->config->reality_cipher;
+    }
+    hs->new_cipher =
+        offered ? SSL_get_cipher_by_value(hs->config->reality_cipher) : nullptr;
+  }
   if (hs->new_cipher == nullptr) {
     OPENSSL_PUT_ERROR(SSL, SSL_R_NO_SHARED_CIPHER);
     ssl_send_alert(ssl, SSL3_AL_FATAL, SSL_AD_HANDSHAKE_FAILURE);
@@ -836,6 +847,11 @@ static enum ssl_hs_wait_t do_select_session(SSL_HANDSHAKE *hs) {
 
 static enum ssl_hs_wait_t do_send_hello_retry_request(SSL_HANDSHAKE *hs) {
   SSLImpl *const ssl = hs->ssl;
+  if (hs->config->reality_server) {
+    OPENSSL_PUT_ERROR(SSL, SSL_R_UNSUPPORTED_PROTOCOL);
+    ssl_send_alert(ssl, SSL3_AL_FATAL, SSL_AD_HANDSHAKE_FAILURE);
+    return ssl_hs_error;
+  }
   if (hs->pending_hints != nullptr) {
     return ssl_hs_hints_ready;
   }
@@ -1012,8 +1028,14 @@ static enum ssl_hs_wait_t do_send_server_hello(SSL_HANDSHAKE *hs) {
 
   Span<uint8_t> random(ssl->s3->server_random);
 
-  if (hs->provided_hints != nullptr &&
-      hs->provided_hints->server_random_tls13.size() == random.size()) {
+  if (hs->config->reality_server) {
+    if (hs->config->reality_server_hello.size() < 38) {
+      return ssl_hs_error;
+    }
+    OPENSSL_memcpy(random.data(), hs->config->reality_server_hello.data() + 6,
+                   random.size());
+  } else if (hs->provided_hints != nullptr &&
+             hs->provided_hints->server_random_tls13.size() == random.size()) {
     OPENSSL_memcpy(random.data(),
                    hs->provided_hints->server_random_tls13.data(),
                    random.size());
@@ -1045,6 +1067,20 @@ static enum ssl_hs_wait_t do_send_server_hello(SSL_HANDSHAKE *hs) {
       !ssl_ext_supported_versions_add_serverhello(hs, &extensions) ||
       !ssl->method->finish_message(ssl, cbb.get(), &server_hello)) {
     return ssl_hs_error;
+  }
+
+  if (hs->config->reality_server) {
+    if (hs->session_id.size() != 32 ||
+        OPENSSL_memcmp(hs->config->reality_server_hello.data() + 39,
+                       hs->session_id.data(), 32) != 0 ||
+        hs->key_share_ciphertext.size() !=
+            hs->config->reality_key_share_length ||
+        !server_hello.CopyFrom(hs->config->reality_server_hello)) {
+      return ssl_hs_error;
+    }
+    OPENSSL_memcpy(server_hello.data() + hs->config->reality_key_share_offset,
+                   hs->key_share_ciphertext.data(),
+                   hs->key_share_ciphertext.size());
   }
 
   assert(ssl->s3->ech_status != ssl_ech_accepted || hs->ech_is_inner);
@@ -1490,6 +1526,13 @@ static enum ssl_hs_wait_t do_read_client_finished(SSL_HANDSHAKE *hs) {
 
 static enum ssl_hs_wait_t do_send_new_session_ticket(SSL_HANDSHAKE *hs) {
   SSLImpl *const ssl = hs->ssl;
+  if (hs->config->reality_server) {
+    if (!tls_add_reality_post_handshake(ssl)) {
+      return ssl_hs_error;
+    }
+    hs->tls13_state = state13_done;
+    return ssl_hs_flush;
+  }
   bool sent_tickets;
   if (!add_new_session_tickets(hs, &sent_tickets)) {
     return ssl_hs_error;

@@ -818,6 +818,12 @@ bool tls_seal_record(SSLImpl *ssl, uint8_t *out, size_t *out_len,
                      size_t max_out, uint8_t type, const uint8_t *in,
                      size_t in_len);
 
+// Seal a TLS 1.3 handshake record padded to the authenticated target length.
+bool tls_seal_reality_record(SSLImpl *ssl, uint8_t *out, size_t *out_len,
+                             size_t target_length, Span<const uint8_t> in,
+                             uint8_t inner_type);
+bool tls_add_reality_post_handshake(SSLImpl *ssl);
+
 // dtls_record_header_write_len returns the length of the record header that
 // will be written at `epoch`.
 size_t dtls_record_header_write_len(const SSLImpl *ssl, uint16_t epoch);
@@ -2884,7 +2890,9 @@ struct SSL3_STATE {
   uint16_t early_data_skipped = 0;
 
   // empty_record_count is the number of consecutive empty records received.
-  uint8_t empty_record_count = 0;
+  uint32_t empty_record_count = 0;
+  bool reality_server = false;
+  uint32_t reality_useless_limit = 100;
 
   // warning_alert_count is the number of consecutive warning alerts
   // received.
@@ -3409,6 +3417,15 @@ struct SSL_CONFIG {
                            const uint8_t[32], void *) = nullptr;
   uint8_t reality_public_key[32] = {0};
   void *reality_arg = nullptr;
+  bool reality_server = false;
+  Array<uint8_t> reality_server_hello;
+  size_t reality_key_share_offset = 0;
+  size_t reality_key_share_length = 0;
+  uint16_t reality_cipher = 0;
+  uint16_t reality_record_lengths[7] = {0};
+  size_t reality_record_index = 2;
+  bool reality_coalesced = false;
+  Array<uint16_t> reality_post_handshake_lengths;
 
   // conf_max_version is the maximum acceptable version configured by
   // `SSL_set_max_proto_version`. Note this version is not normalized in DTLS

@@ -5111,6 +5111,12 @@ bool tls1_choose_signature_algorithm(SSL_HANDSHAKE *hs,
   // Before TLS 1.2, the signature algorithm isn't negotiated as part of the
   // handshake.
   uint16_t version = ssl_protocol_version(ssl);
+  if (hs->config->reality_server && ssl->server && version == TLS1_3_VERSION &&
+      cred->type == SSLCredentialType::kX509 &&
+      EVP_PKEY_id(cred->pubkey.get()) == EVP_PKEY_ED25519) {
+    *out = SSL_SIGN_ED25519;
+    return true;
+  }
   if (version < TLS1_2_VERSION) {
     if (!tls1_get_legacy_signature_algorithm(out, cred->pubkey.get())) {
       OPENSSL_PUT_ERROR(SSL, SSL_R_NO_COMMON_SIGNATURE_ALGORITHMS);

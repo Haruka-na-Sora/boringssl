@@ -2190,6 +2190,132 @@ int SSL_set_reality_client_hello_callback(
   return 1;
 }
 
+int SSL_set_reality_server(SSL *ssl) {
+  auto *impl = FromOpaque(ssl);
+  if (!impl->config || !impl->server || !SSL_in_init(ssl) || SSL_is_dtls(ssl) ||
+      SSL_is_quic(ssl) || !SSL_set_min_proto_version(ssl, TLS1_3_VERSION) ||
+      !SSL_set_max_proto_version(ssl, TLS1_3_VERSION)) {
+    return 0;
+  }
+  const uint16_t groups[] = {SSL_GROUP_X25519_MLKEM768, SSL_GROUP_X25519};
+  if (!SSL_set1_group_ids(ssl, groups, 2)) {
+    return 0;
+  }
+  SSL_set_options(ssl, SSL_OP_NO_TICKET);
+  impl->config->reality_server = true;
+  impl->s3->reality_server = true;
+  return 1;
+}
+
+int SSL_set1_reality_server_flight(SSL *ssl, const uint8_t *server_hello,
+                                   size_t server_hello_len,
+                                   const uint16_t record_lengths[7],
+                                   int coalesced) {
+  auto *impl = FromOpaque(ssl);
+  if (!impl->config || !impl->config->reality_server || !SSL_in_init(ssl) ||
+      server_hello_len > 17 * 1024 ||
+      record_lengths[0] != server_hello_len + 5 || record_lengths[1] != 6) {
+    return 0;
+  }
+  CBS msg, body, random, session, extensions;
+  CBS_init(&msg, server_hello, server_hello_len);
+  uint8_t type, compression;
+  uint16_t version, cipher;
+  if (!CBS_get_u8(&msg, &type) || type != SSL3_MT_SERVER_HELLO ||
+      !CBS_get_u24_length_prefixed(&msg, &body) || CBS_len(&msg) != 0 ||
+      !CBS_get_u16(&body, &version) || version != TLS1_2_VERSION ||
+      !CBS_get_bytes(&body, &random, 32) ||
+      !CBS_get_u8_length_prefixed(&body, &session) || CBS_len(&session) != 32 ||
+      !CBS_get_u16(&body, &cipher) ||
+      (cipher != 0x1301 && cipher != 0x1302 && cipher != 0x1303) ||
+      !CBS_get_u8(&body, &compression) || compression != 0 ||
+      !CBS_get_u16_length_prefixed(&body, &extensions) || CBS_len(&body) != 0) {
+    return 0;
+  }
+  // A retry request cannot mirror a successful first flight.
+  static const uint8_t hrr_random[32] = {
+      0xcf, 0x21, 0xad, 0x74, 0xe5, 0x9a, 0x61, 0x11, 0xbe, 0x1d, 0x8c,
+      0x02, 0x1e, 0x65, 0xb8, 0x91, 0xc2, 0xa2, 0x11, 0x16, 0x7a, 0xbb,
+      0x8c, 0x5e, 0x07, 0x9e, 0x09, 0xe2, 0xc8, 0xa8, 0x33, 0x9c};
+  if (OPENSSL_memcmp(CBS_data(&random), hrr_random, 32) == 0) {
+    return 0;
+  }
+  bool has_version = false, has_share = false;
+  uint16_t group = 0;
+  size_t offset = 0, length = 0;
+  while (CBS_len(&extensions) != 0) {
+    uint16_t extension;
+    CBS data;
+    if (!CBS_get_u16(&extensions, &extension) ||
+        !CBS_get_u16_length_prefixed(&extensions, &data)) {
+      return 0;
+    }
+    if (extension == TLSEXT_TYPE_supported_versions) {
+      if (has_version || !CBS_get_u16(&data, &version) ||
+          version != TLS1_3_VERSION || CBS_len(&data) != 0) {
+        return 0;
+      }
+      has_version = true;
+    } else if (extension == TLSEXT_TYPE_key_share) {
+      CBS share;
+      if (has_share || !CBS_get_u16(&data, &group) ||
+          !CBS_get_u16_length_prefixed(&data, &share) || CBS_len(&data) != 0 ||
+          !((group == SSL_GROUP_X25519 && CBS_len(&share) == 32) ||
+            (group == SSL_GROUP_X25519_MLKEM768 && CBS_len(&share) == 1120))) {
+        return 0;
+      }
+      has_share = true;
+      offset = CBS_data(&share) - server_hello;
+      length = CBS_len(&share);
+    } else {
+      // REALITY does not support PSK, ECH, or other negotiated SH extensions.
+      return 0;
+    }
+  }
+  if (!has_version || !has_share) {
+    return 0;
+  }
+  for (size_t i = 2; i < 7; i++) {
+    if (coalesced && i > 2) {
+      if (record_lengths[i] != 0) return 0;
+    } else if ((i < 6 || record_lengths[i] != 0) &&
+               (record_lengths[i] < 22 || record_lengths[i] > 17 * 1024)) {
+      return 0;
+    }
+  }
+  if (!impl->config->reality_server_hello.CopyFrom(
+          Span(server_hello, server_hello_len)) ||
+      !SSL_set1_group_ids(ssl, &group, 1)) {
+    return 0;
+  }
+  impl->config->reality_key_share_offset = offset;
+  impl->config->reality_key_share_length = length;
+  impl->config->reality_cipher = cipher;
+  OPENSSL_memcpy(impl->config->reality_record_lengths, record_lengths,
+                 7 * sizeof(uint16_t));
+  impl->config->reality_record_index = 2;
+  impl->config->reality_coalesced = coalesced != 0;
+  return 1;
+}
+
+int SSL_set1_reality_server_probes(SSL *ssl, const uint16_t *lengths,
+                                   size_t count, uint32_t useless_limit) {
+  auto *impl = FromOpaque(ssl);
+  if (!impl->config || !impl->config->reality_server || !SSL_in_init(ssl) ||
+      count > 1024 || useless_limit == 0) {
+    return 0;
+  }
+  for (size_t i = 0; i < count; i++) {
+    if (lengths[i] < 22 || lengths[i] > 17 * 1024) return 0;
+  }
+  if (!impl->config->reality_post_handshake_lengths.CopyFrom(
+          Span(lengths, count))) {
+    return 0;
+  }
+  impl->s3->reality_useless_limit = useless_limit;
+  return 1;
+}
+
 int SSL_set1_client_key_shares(SSL *ssl, const uint16_t *group_ids,
                                size_t num_group_ids) {
   auto *ssl_impl = FromOpaque(ssl);

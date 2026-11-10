@@ -53,7 +53,19 @@ static bool add_record_to_flight(SSLImpl *ssl, uint8_t type,
     }
   }
 
-  size_t max_out = in.size() + SSL_max_seal_overhead(ssl);
+  bool reality = ssl->config && ssl->config->reality_server &&
+                 type == SSL3_RT_HANDSHAKE &&
+                 !ssl->s3->aead_write_ctx->is_null_cipher();
+  size_t target_length = 0;
+  if (reality) {
+    size_t index = ssl->config->reality_record_index;
+    if (index >= 6) {
+      return false;
+    }
+    target_length = ssl->config->reality_record_lengths[index];
+  }
+  size_t max_out =
+      reality ? target_length : in.size() + SSL_max_seal_overhead(ssl);
   size_t new_cap = ssl->s3->pending_flight->length + max_out;
   if (max_out < in.size() || new_cap < max_out) {
     OPENSSL_PUT_ERROR(SSL, ERR_R_OVERFLOW);
@@ -62,14 +74,44 @@ static bool add_record_to_flight(SSLImpl *ssl, uint8_t type,
 
   size_t len;
   if (!BUF_MEM_reserve(ssl->s3->pending_flight.get(), new_cap) ||
-      !tls_seal_record(ssl,
-                       (uint8_t *)ssl->s3->pending_flight->data +
-                           ssl->s3->pending_flight->length,
-                       &len, max_out, type, in.data(), in.size())) {
+      !(reality
+            ? tls_seal_reality_record(
+                  ssl,
+                  reinterpret_cast<uint8_t *>(ssl->s3->pending_flight->data) +
+                      ssl->s3->pending_flight->length,
+                  &len, target_length, in, SSL3_RT_HANDSHAKE)
+            : tls_seal_record(
+                  ssl,
+                  reinterpret_cast<uint8_t *>(ssl->s3->pending_flight->data) +
+                      ssl->s3->pending_flight->length,
+                  &len, max_out, type, in.data(), in.size()))) {
     return false;
   }
 
   ssl->s3->pending_flight->length += len;
+  if (reality) {
+    ssl->config->reality_record_index += ssl->config->reality_coalesced ? 4 : 1;
+  }
+  return true;
+}
+
+bool tls_add_reality_post_handshake(SSLImpl *ssl) {
+  assert(!ssl->s3->pending_hs_data);
+  if (!ssl->s3->pending_flight) {
+    ssl->s3->pending_flight.reset(BUF_MEM_new());
+    if (!ssl->s3->pending_flight) return false;
+  }
+  for (uint16_t length : ssl->config->reality_post_handshake_lengths) {
+    auto *flight = ssl->s3->pending_flight.get();
+    size_t written;
+    if (!BUF_MEM_reserve(flight, flight->length + length) ||
+        !tls_seal_reality_record(
+            ssl, reinterpret_cast<uint8_t *>(flight->data) + flight->length,
+            &written, length, {}, SSL3_RT_APPLICATION_DATA)) {
+      return false;
+    }
+    flight->length += written;
+  }
   return true;
 }
 
@@ -134,6 +176,13 @@ bool tls_add_message(SSLImpl *ssl, Array<uint8_t> msg) {
         return false;
       }
     }
+  }
+
+  if (ssl->config && ssl->config->reality_server &&
+      !ssl->config->reality_coalesced &&
+      !ssl->s3->aead_write_ctx->is_null_cipher() &&
+      !tls_flush_pending_hs_data(ssl)) {
+    return false;
   }
 
   ssl_do_msg_callback(ssl, 1 /* write */, SSL3_RT_HANDSHAKE, msg);

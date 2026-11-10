@@ -2872,6 +2872,34 @@ OPENSSL_EXPORT int SSL_set_reality_client_hello_callback(
                      const uint8_t *client_hello, size_t client_hello_len,
                      const uint8_t shared_secret[32], void *arg), void *arg);
 
+// SSL_set_reality_server enables the REALITY Ed25519 CertificateVerify rule
+// on a server connection. The application must authenticate the original
+// ClientHello and install its synthetic Ed25519 certificate before use. REALITY
+// authenticates this algorithm independently of signature_algorithms. This mode
+// requires TLS 1.3, disables tickets, and does not permit HelloRetryRequest.
+// It returns one on success or zero if called on an incompatible connection.
+OPENSSL_EXPORT int SSL_set_reality_server(SSL *ssl);
+
+// SSL_set1_reality_server_flight installs the target's complete ServerHello
+// handshake message and its record lengths (including five-byte headers), in
+// ServerHello, CCS, EncryptedExtensions, Certificate, CertificateVerify,
+// Finished, and optional ticket order. In coalesced mode, lengths[2] describes
+// the single encrypted first-flight record. All other encrypted lengths must
+// be zero in that mode. Unsupported target profiles are rejected. The caller
+// must preserve the original target connection for unauthenticated forwarding.
+OPENSSL_EXPORT int SSL_set1_reality_server_flight(
+    SSL *ssl, const uint8_t *server_hello, size_t server_hello_len,
+    const uint16_t record_lengths[7], int coalesced);
+
+// SSL_set1_reality_server_probes configures the target's observed
+// post-handshake record lengths and consecutive ignored-record limit. Dummy
+// empty application records are emitted after client Finished using the
+// application traffic key.
+OPENSSL_EXPORT int SSL_set1_reality_server_probes(SSL *ssl,
+                                                  const uint16_t *lengths,
+                                                  size_t count,
+                                                  uint32_t useless_limit);
+
 // SSL_set1_client_key_shares, when called by a client before the handshake,
 // configures `ssl` to send a key_share extension in the initial ClientHello
 // containing exactly the groups given by `group_ids`, in the order given. Each

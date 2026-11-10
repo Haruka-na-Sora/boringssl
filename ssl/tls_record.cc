@@ -151,11 +151,14 @@ ssl_open_record_t tls_open_record(SSLImpl *ssl, uint8_t *out_type,
   // In TLS 1.3, during the handshake, skip ChangeCipherSpec records.
   static const uint8_t kChangeCipherSpec[] = {SSL3_MT_CCS};
   if (ssl_has_final_version(ssl) &&
-      ssl_protocol_version(ssl) >= TLS1_3_VERSION && SSL_in_init(ssl) &&
+      ssl_protocol_version(ssl) >= TLS1_3_VERSION &&
+      (SSL_in_init(ssl) || ssl->s3->reality_server) &&
       type == SSL3_RT_CHANGE_CIPHER_SPEC &&
       Span<const uint8_t>(body) == kChangeCipherSpec) {
     ssl->s3->empty_record_count++;
-    if (ssl->s3->empty_record_count > kMaxEmptyRecords) {
+    if (ssl->s3->empty_record_count > (ssl->s3->reality_server
+                                           ? ssl->s3->reality_useless_limit
+                                           : kMaxEmptyRecords)) {
       OPENSSL_PUT_ERROR(SSL, SSL_R_TOO_MANY_EMPTY_FRAGMENTS);
       *out_alert = SSL_AD_UNEXPECTED_MESSAGE;
       return ssl_open_record_error;
@@ -231,7 +234,9 @@ ssl_open_record_t tls_open_record(SSLImpl *ssl, uint8_t *out_type,
   // Limit the number of consecutive empty records.
   if (out->empty()) {
     ssl->s3->empty_record_count++;
-    if (ssl->s3->empty_record_count > kMaxEmptyRecords) {
+    if (ssl->s3->empty_record_count > (ssl->s3->reality_server
+                                           ? ssl->s3->reality_useless_limit
+                                           : kMaxEmptyRecords)) {
       OPENSSL_PUT_ERROR(SSL, SSL_R_TOO_MANY_EMPTY_FRAGMENTS);
       *out_alert = SSL_AD_UNEXPECTED_MESSAGE;
       return ssl_open_record_error;
@@ -406,6 +411,42 @@ static bool tls_seal_scatter_record(SSLImpl *ssl, uint8_t *out_prefix,
   }
 
   return do_seal_record(ssl, out_prefix, out, out_suffix, type, in, in_len);
+}
+
+bool tls_seal_reality_record(SSLImpl *ssl, uint8_t *out, size_t *out_len,
+                             size_t target_length, Span<const uint8_t> in,
+                             uint8_t inner_type) {
+  auto *aead = ssl->s3->aead_write_ctx.get();
+  // REALITY supports only TLS 1.3 AEADs with 16-byte tags. Padding is part of
+  // TLSInnerPlaintext, never appended outside the authenticated ciphertext.
+  if (aead->is_null_cipher() || target_length < in.size() + 22 ||
+      target_length > 17 * 1024 || ssl->s3->write_sequence + 1 == 0) {
+    OPENSSL_PUT_ERROR(SSL, SSL_R_RECORD_TOO_LARGE);
+    return false;
+  }
+  Array<uint8_t> inner;
+  if (!inner.Init(target_length - 5 - 16)) {
+    return false;
+  }
+  OPENSSL_memcpy(inner.data(), in.data(), in.size());
+  inner[in.size()] = inner_type;
+  OPENSSL_memset(inner.data() + in.size() + 1, 0, inner.size() - in.size() - 1);
+  out[0] = SSL3_RT_APPLICATION_DATA;
+  out[1] = 3;
+  out[2] = 3;
+  out[3] = (target_length - 5) >> 8;
+  out[4] = (target_length - 5) & 0xff;
+  auto header = Span(out, size_t{5});
+  if (!aead->SealScatter(out + 5, out + 5, out + 5 + inner.size(),
+                         SSL3_RT_APPLICATION_DATA, TLS1_2_VERSION,
+                         ssl->s3->write_sequence, header, inner.data(),
+                         inner.size(), nullptr, 0)) {
+    return false;
+  }
+  ssl->s3->write_sequence++;
+  ssl_do_msg_callback(ssl, 1 /* write */, SSL3_RT_HEADER, header);
+  *out_len = target_length;
+  return true;
 }
 
 bool tls_seal_record(SSLImpl *ssl, uint8_t *out, size_t *out_len,
