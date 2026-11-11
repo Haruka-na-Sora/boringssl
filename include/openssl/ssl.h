@@ -4776,6 +4776,13 @@ OPENSSL_EXPORT void SSL_set_reject_unusable_ech_config(SSL *ssl, int enable);
 // change real ECH cipher selection. Returns zero for an unsupported ID.
 OPENSSL_EXPORT int SSL_set_ech_grease_aead_id(SSL *ssl, uint16_t aead_id);
 
+// SSL_set_ech_aes_preference overrides real ECH cipher selection for `ssl`.
+// One selects the first supported suite in the ECHConfig, as on AES-capable
+// hardware. Zero prefers ChaCha20-Poly1305 when offered. Minus one restores
+// hardware-dependent defaults. This does not change ECH GREASE selection.
+// Returns zero if `prefer_aes` is invalid or configuration is unavailable.
+OPENSSL_EXPORT int SSL_set_ech_aes_preference(SSL *ssl, int prefer_aes);
+
 // SSL_set1_ech_config_list configures `ssl` to, as a client, offer ECH with the
 // specified configuration. `ech_config_list` should contain a serialized
 // ECHConfigList structure. It returns one on success and zero on error.

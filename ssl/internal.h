@@ -3566,6 +3566,9 @@ struct SSL_CONFIG {
   // Zero selects the native hardware-dependent ECH GREASE AEAD.
   uint16_t ech_grease_aead_id = 0;
 
+  // An unset preference selects the native hardware-dependent real ECH policy.
+  std::optional<bool> ech_aes_preference;
+
   // reject_unusable_ech_config controls whether the client will fail the
   // handshake if ECH cannot be offered.
   bool reject_unusable_ech_config : 1;

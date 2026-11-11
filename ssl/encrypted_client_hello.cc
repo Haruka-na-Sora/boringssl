@@ -621,7 +621,8 @@ bool ssl_is_valid_ech_config_list(Span<const uint8_t> ech_config_list) {
 
 static bool select_ech_cipher_suite(const EVP_HPKE_KDF **out_kdf,
                                     const EVP_HPKE_AEAD **out_aead,
-                                    Span<const uint8_t> cipher_suites) {
+                                    Span<const uint8_t> cipher_suites,
+                                    bool prefer_aes) {
   const EVP_HPKE_AEAD *aead = nullptr;
   CBS cbs = cipher_suites;
   while (CBS_len(&cbs) != 0) {
@@ -630,14 +631,14 @@ static bool select_ech_cipher_suite(const EVP_HPKE_KDF **out_kdf,
         !CBS_get_u16(&cbs, &aead_id)) {
       return false;
     }
-    // Pick the first common cipher suite, but prefer ChaCha20-Poly1305 if we
-    // don't have AES hardware.
+    // Pick the first common cipher suite, but prefer ChaCha20-Poly1305 when
+    // the caller selects the non-AES policy.
     const EVP_HPKE_AEAD *candidate = get_ech_aead(aead_id);
     if (kdf_id != EVP_HPKE_HKDF_SHA256 || candidate == nullptr) {
       continue;
     }
     if (aead == nullptr ||
-        (!EVP_has_aes_hardware() && aead_id == EVP_HPKE_CHACHA20_POLY1305)) {
+        (!prefer_aes && aead_id == EVP_HPKE_CHACHA20_POLY1305)) {
       aead = candidate;
     }
   }
@@ -683,7 +684,9 @@ bool ssl_select_ech_config(SSL_HANDSHAKE *hs, Span<uint8_t> out_enc,
       const EVP_HPKE_AEAD *aead;
       if (supported &&  //
           ech_config.kem_id == EVP_HPKE_DHKEM_X25519_HKDF_SHA256 &&
-          select_ech_cipher_suite(&kdf, &aead, ech_config.cipher_suites)) {
+          select_ech_cipher_suite(
+              &kdf, &aead, ech_config.cipher_suites,
+              hs->config->ech_aes_preference.value_or(EVP_has_aes_hardware()))) {
         ScopedCBB info;
         static const uint8_t kInfoLabel[] = "tls ech";  // includes trailing NUL
         if (!CBB_init(info.get(), sizeof(kInfoLabel) + ech_config.raw.size()) ||
@@ -910,6 +913,19 @@ int SSL_set_ech_grease_aead_id(SSL *ssl, uint16_t aead_id) {
     return 0;
   }
   ssl_impl->config->ech_grease_aead_id = aead_id;
+  return 1;
+}
+
+int SSL_set_ech_aes_preference(SSL *ssl, int prefer_aes) {
+  auto *ssl_impl = FromOpaque(ssl);
+  if (!ssl_impl->config || prefer_aes < -1 || prefer_aes > 1) {
+    return 0;
+  }
+  if (prefer_aes < 0) {
+    ssl_impl->config->ech_aes_preference.reset();
+  } else {
+    ssl_impl->config->ech_aes_preference = prefer_aes != 0;
+  }
   return 1;
 }
 
