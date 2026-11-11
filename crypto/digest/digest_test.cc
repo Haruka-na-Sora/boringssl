@@ -417,6 +417,15 @@ TEST(DigestTest, XOF) {
   EXPECT_FALSE(EVP_DigestSqueeze(ctx.get(), out, sizeof(out)));
   ERR_clear_error();
 
+  // SHAKE128, NIST FIPS 202 empty-message vector, split across squeezes.
+  ASSERT_TRUE(EVP_DigestInit_ex(ctx.get(), EVP_shake128(), nullptr));
+  ASSERT_TRUE(EVP_DigestSqueeze(ctx.get(), out, 17));
+  ASSERT_TRUE(EVP_DigestSqueeze(ctx.get(), out + 17, sizeof(out) - 17));
+  EXPECT_EQ(
+      "7f9c2ba4e88f827d616045507605853ed73b8093f6efbc88eb1a6eacfa66ef26"
+      "3cb1eea988004b93103cfb0aeefd2a686e01fa4a58e8a3639ca8a1e3f9ae57e2",
+      EncodeHex(out));
+
   // SHAKE256 512-bit test vectors from NIST:
   // https://csrc.nist.gov/CSRC/media/Projects/Cryptographic-Standards-and-Guidelines/documents/examples/SHAKE256_Msg0.pdf
   ASSERT_TRUE(EVP_DigestInit_ex(ctx.get(), EVP_shake256(), nullptr));
@@ -490,6 +499,24 @@ TEST_P(XOFSqueeze, Squeeze) {
 }
 
 const XOFTestVector kSqueezeVectors[] = {
+    // NIST SHAKE128 Msg1600: crosses the 168-byte absorb/squeeze rate.
+    {"SHAKE128_MSG1600", EVP_shake128,
+     "a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3"
+     "a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3"
+     "a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3"
+     "a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3"
+     "a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3"
+     "a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3"
+     "a3a3a3a3a3a3a3a3",
+     "131ab8d2b594946b9c81333f9bb6e0ce75c3b93104fa3469d3917457385da037"
+     "cf232ef7164a6d1eb448c8908186ad852d3f85a5cf28da1ab6fe343817197846"
+     "7f1c05d58c7ef38c284c41f6c2221a76f12ab1c04082660250802294fb871802"
+     "13fdef5b0ecb7df50ca1f8555be14d32e10f6edcde892c09424b29f597afc270"
+     "c904556bfcb47a7d40778d390923642b3cbd0579e60908d5a000c1d08b98ef93"
+     "3f806445bf87f8b009ba9e94f7266122ed7ac24e5e266c42a82fa1bbefb7b8db"
+     "0066e16a85e0493f07df4809aec084a593748ac3dde5a6d7aae1e8b6e5352b2d"
+     "71efbb47d4caeed5e6d633805d2d323e6fd81b4684b93a2677d45e7421c2c6ae"},
+
     {"SHAKE256_MSG", EVP_shake256,
      "e4baace59e93f0a59db1e7a9a3e6ba9de6be97e6ada3e8bc89e6a5b5e68192e6"
      "b2b3e6b299e998bfe583a7e7a587e982a3e794b1e4bb96e4b88de58fafe6809d"
